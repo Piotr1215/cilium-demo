@@ -1,4 +1,4 @@
-# Kubernetes Networking observability with Cilium
+# Kubernetes Networking Policies with Cilium
 
 ## What is Cilium?
 
