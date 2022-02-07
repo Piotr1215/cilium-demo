@@ -62,7 +62,7 @@ Here is a sample CiliumNetworkPolicy YAML file strictly allowing only traffic fr
 apiVersion: "cilium.io/v2"
 kind: CiliumNetworkPolicy
 metadata:
-  name: "readFlightsRule"
+  name: "readflights"
 spec:
   description: "Allow HTTP GET /flights from env=prod, app=flights_board to app=flights_service"
   endpointSelector:
@@ -103,36 +103,105 @@ The benefits of this approach are:
 - kubectl
 - helm v3
 
-> If you need help installing Cilium, please refer to their [excellent documentation](https://docs.cilium.io/en/stable/gettingstarted/k8s-install-default/).
+> If you need help installing Cilium, please refer to their [excellent documentation](https://docs.cilium.io/en/stable/gettingstarted/k3s/).
 
 ## Steps
 
-Create minikube cluster
+Install k3s on a Ubuntu instance
 
 ```bash
-minikube start --network-plugin=cni --cni=false
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='--flannel-backend=none --disable-network-policy' sh -
 ```
 
-Install CLI
+Set KUBECONFIG environmental variable to point to k3s config file
+
+```bash
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+```
+
+Install the Cilium CLI
 
 ```bash
 curl -L --remote-name-all https://github.com/cilium/cilium-cli/releases/latest/download/cilium-linux-amd64.tar.gz{,.sha256sum}
 sha256sum --check cilium-linux-amd64.tar.gz.sha256sum
-
 sudo tar xzvfC cilium-linux-amd64.tar.gz /usr/local/bin
-
 rm cilium-linux-amd64.tar.gz{,.sha256sum}
 ```
 
-Install Cilium on the minikube cluster
+Install Cilium on the cluster
 
 ```bash
 cilium install
 ```
 
-Deploy sample go api
-```bash
+Wait for Cilium to fully spin up
 
+```bash
+cilium status --wait
 ```
 
+Deploy sample go api
 
+```bash
+kubectl apply -f https://raw.githubusercontent.com/Piotr1215/go-sample-api/master/k8s/deployment.yaml
+```
+
+To see the API open port 31234 in the Katacoda terminal
+
+![open-port](_media/open-port.png)
+
+The API has 3 simple GET endpoints
+
+- /           returns "HOME Page"
+- /version    returns "VERSION Page"
+- /about      returns "ABOUT Page"
+
+Create a test BusyBox pod and check connectivity to go-api service
+
+```bash
+kubectl run -it --rm debug --image=radial/busyboxplus:curl --restart=Never -- curl -w "\n" http://go-api-svc
+```
+
+Let's apply policy that allows only traffic from pods with label app:version_ready to GET endpoind of the go-api pod
+
+```yaml
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: "readflights"
+spec:
+  description: "Allow HTTP GET /version from app=version_reader to type=service"
+  endpointSelector:
+    matchLabels:
+      type: service 
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: version_reader
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+      rules:
+        http:
+        - method: "GET"
+          path: "/version"
+```
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/Piotr1215/go-sample-api/master/k8s/cilium-policy.yaml
+```
+
+Proper labels
+
+```bash
+kubectl run -it --rm debug --image=radial/busyboxplus:curl --labels app=version_reader --restart=Never -- curl -w "\n" http://go-api-svc/version
+```
+
+## Conclusion
+
+We have just scratched the surface of what Cilium is capable of, but I believe that focusing on a practical usecase helps us lern actual skills with Cilium, rather then learning about Cilium.
+
+The current trend with cloud-native ecosystem is to embrace eBPF in more and more scenarios. This technology is currently used by Google, Facebook, SUSE, AWS and many others as a powerful and flexible low level solution that addresses much better set of existing challenges.
+
+Cilium bridges the abstraction gap between low level eBFP primitives and end users and IMO is one of the most promissing cloud-native projects.
