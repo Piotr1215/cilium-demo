@@ -95,58 +95,65 @@ The benefits of this approach are:
 - ability to deploy another instance of the same API in a container image, but with different labels and rules which may depend on namespaces or different conditions
 - standardized and centrally controlled security aspect
 
-# Demo Scenario
+## Demo Scenario
 
-## Prerequisistes
+### Prerequisites
 
-- minikube > v.1.12.1 or greater
-- kubectl
-- helm v3
+We are going to use a clean Ubuntu 20.04 instance on Katacoda, so no need to install anything locally.
 
-> If you need help installing Cilium, please refer to their [excellent documentation](https://docs.cilium.io/en/stable/gettingstarted/k3s/).
+### Steps
 
-## Steps
+### Spin up Katacoda environment
 
-Install k3s on a Ubuntu instance
+Activate [Ubuntu 20.04 Playground](https://www.katacoda.com/scenario-examples/courses/environment-usages/ubuntu-2004) on Katacoda and follow the steps below.
+
+#### Install k3s on a Ubuntu instance
+
+We are going to use a small and fast Kubernetes distribution from Rancher called [k3s](https://k3s.io/). This will enable us to spin up a fresh Kubernetes cluster very fast and proceed with next steps.
 
 ```bash
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='--flannel-backend=none --disable-network-policy' sh -
 ```
 
-Set KUBECONFIG environmental variable to point to k3s config file
+Set KUBECONFIG environmental variable to point to k3s config file, so we can talk to the cluster via `kubectl` which is already pre-installed on the Katacoda environment.
 
 ```bash
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 ```
 
-Install the Cilium CLI
+#### Install the Cilium CLI
+
+> If you need help installing Cilium, please refer to their [excellent documentation](https://docs.cilium.io/en/stable/gettingstarted/k3s/).
 
 ```bash
 curl -L --remote-name-all https://github.com/cilium/cilium-cli/releases/latest/download/cilium-linux-amd64.tar.gz{,.sha256sum}
 sha256sum --check cilium-linux-amd64.tar.gz.sha256sum
 sudo tar xzvfC cilium-linux-amd64.tar.gz /usr/local/bin
 rm cilium-linux-amd64.tar.gz{,.sha256sum}
+
 ```
 
-Install Cilium on the cluster
+#### Install Cilium on the cluster
 
 ```bash
 cilium install
 ```
 
-Wait for Cilium to fully spin up
+Cilium can take a moment to activate so we will use this command to Wait for Cilium to fully start.
 
 ```bash
 cilium status --wait
 ```
 
-Deploy sample go api
+#### Deploy sample go API
+
+Let's deploy a minimalistic Go REST API where we can easily test CiliumNetworkPolicy in action.
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/Piotr1215/go-sample-api/master/k8s/deployment.yaml
 ```
 
-To see the API open port 31234 in the Katacoda terminal
+To see the API open port **31234** in the Katacoda terminal
 
 ![open-port](_media/open-port.png)
 
@@ -156,13 +163,26 @@ The API has 3 simple GET endpoints
 - /version    returns "VERSION Page"
 - /about      returns "ABOUT Page"
 
-Create a test BusyBox pod and check connectivity to go-api service
+#### Check service connectivity
+
+Create a test [BusyBox](https://www.busybox.net/) pod and check connectivity to go-api service
 
 ```bash
 kubectl run -it --rm debug --image=radial/busyboxplus:curl --restart=Never -- curl -w "\n" http://go-api-svc
 ```
 
-Let's apply policy that allows only traffic from pods with label app:version_ready to GET endpoind of the go-api pod
+Let's break down this command:
+
+- `kubectl run` - starts a new pod
+- the `-it` flag ensures that we can interact with the pod and send commands to the container running inside
+- `--rm` instructs Kubernetes to remove the pod right after it exits
+- `curl -w "\n" http://go-api-svc` calls a go-api service taking advantage of Kubernetes DNS and service discovery mechanism
+
+After running this command you should see `HOME Page` returned to the terminal.
+
+#### Apply Network Policy
+
+Let's apply policy that allows only traffic from pods with label app:version_ready to GET endpoint of the go-api pod.
 
 ```yaml
 apiVersion: "cilium.io/v2"
@@ -192,16 +212,50 @@ spec:
 kubectl apply -f https://raw.githubusercontent.com/Piotr1215/go-sample-api/master/k8s/cilium-policy.yaml
 ```
 
-Proper labels
+#### Check if the connectivity works
+
+If our policy works correctly, we shouldn't be able to access the service any longer.
 
 ```bash
-kubectl run -it --rm debug --image=radial/busyboxplus:curl --labels app=version_reader --restart=Never -- curl -w "\n" http://go-api-svc/version
+kubectl run -it --rm debug \
+        --image=radial/busyboxplus:curl \
+        --restart=Never \
+        --timeout=15s \
+        -- curl -w "\n" http://go-api-svc
+```
+
+The above command will result in a timeout.
+
+> If you don't want to wait for a timeout, you can create a new terminal session with the `+` icon on the top.
+
+### Identity Aware Policy
+
+In order to grant access to a pod to the `/version` endpoint, we have to label it appropriately with `app=version_reader`
+
+```bash
+kubectl run -it --rm debug2 \
+        --image=radial/busyboxplus:curl \
+        --labels app=version_reader \
+        --restart=Never \
+        -- curl -w "\n" http://go-api-svc/version
+```
+
+This should print out `VERSION Page`. Let's try to access the `/about` endpoint from the same pod. Will it work?
+
+```bash
+kubectl run -it --rm debug2 \
+        --image=radial/busyboxplus:curl \
+        --labels app=version_reader \
+        --timeout=15s \
+        --restart=Never \
+        -- curl -w "\n" http://go-api-svc/about
 ```
 
 ## Conclusion
 
-We have just scratched the surface of what Cilium is capable of, but I believe that focusing on a practical usecase helps us lern actual skills with Cilium, rather then learning about Cilium.
+We have just scratched the surface of what Cilium is capable of, but I believe that focusing on a practical use case helps us learn actual skills with Cilium, rather then learning about Cilium.
 
 The current trend with cloud-native ecosystem is to embrace eBPF in more and more scenarios. This technology is currently used by Google, Facebook, SUSE, AWS and many others as a powerful and flexible low level solution that addresses much better set of existing challenges.
 
-Cilium bridges the abstraction gap between low level eBFP primitives and end users and IMO is one of the most promissing cloud-native projects.
+Cilium bridges the abstraction gap between low level eBFP primitives and end users and IMO is one of the most promising cloud-native projects.
+
