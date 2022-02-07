@@ -1,4 +1,4 @@
-# Enhanced Kubernetes Network Policies with Cilium
+# Kubernetes Network Policies with Cilium
 
 ## The Promise of Microservices
 
@@ -10,6 +10,8 @@ There are two main benefits of using microservices architecture.
 In the world where microservices architecture for server side workloads is the dominating paradigm and more and more compute runs on Kubernetes, we have a chance to truly fulfill the microservices technical and organizational promise.
 
 This article will show how to, using Cilium, tackle the authorization concern and move push it to the underlying platform from the application code.
+
+You will find this article helpful if you are a developer working with Kubernetes, Kubernetes administrator or simply curious to learn about modern cloud-native patterns.
 
 ## What is Cilium?
 
@@ -30,7 +32,7 @@ Below diagram shows how eBPF works on a high level
 ![ebpf-overview](_media/ebpf-overview.png)
 <p style="text-align: center;"><small>Source: https://ebpf.io/what-is-ebpf</p>
 
-## Granular Authorization Control
+## Use Case: Granular Authorization Control
 
 Let's imagine a scenario where your REST API consists of multiple endpoints exposing a flight booking related resources. This REST API is deployed to a managed K8s cluster, let's say GKE (Google Kubernetes Engine) and is often accessed by other microservices running in the cluster as well as some external services.
 
@@ -97,17 +99,17 @@ The benefits of this approach are:
 
 ## Demo Scenario
 
+You can follow along without installing anything on your local machine. This demo will show how to secure access to our example flight booking service using CiliumNetworkPolicy.
+
 ### Prerequisites
 
 We are going to use a clean Ubuntu 20.04 instance on Katacoda, so no need to install anything locally.
 
-### Steps
-
-### Spin up Katacoda environment
+### #1 Spin up Katacoda environment
 
 Activate [Ubuntu 20.04 Playground](https://www.katacoda.com/scenario-examples/courses/environment-usages/ubuntu-2004) on Katacoda and follow the steps below.
 
-#### Install k3s on a Ubuntu instance
+### #2 Install k3s on a Ubuntu instance
 
 We are going to use a small and fast Kubernetes distribution from Rancher called [k3s](https://k3s.io/). This will enable us to spin up a fresh Kubernetes cluster very fast and proceed with next steps.
 
@@ -121,7 +123,7 @@ Set KUBECONFIG environmental variable to point to k3s config file, so we can tal
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 ```
 
-#### Install the Cilium CLI
+### #3 Install the Cilium CLI
 
 > If you need help installing Cilium, please refer to their [excellent documentation](https://docs.cilium.io/en/stable/gettingstarted/k3s/).
 
@@ -133,7 +135,7 @@ rm cilium-linux-amd64.tar.gz{,.sha256sum}
 
 ```
 
-#### Install Cilium on the cluster
+### #4 Install Cilium on the cluster
 
 ```bash
 cilium install
@@ -145,7 +147,7 @@ Cilium can take a moment to activate so we will use this command to Wait for Cil
 cilium status --wait
 ```
 
-#### Deploy sample go API
+### #5 Deploy sample go API
 
 Let's deploy a minimalistic Go REST API where we can easily test CiliumNetworkPolicy in action.
 
@@ -163,12 +165,15 @@ The API has 3 simple GET endpoints
 - /version    returns "VERSION Page"
 - /about      returns "ABOUT Page"
 
-#### Check service connectivity
+### #6 Check service connectivity
 
 Create a test [BusyBox](https://www.busybox.net/) pod and check connectivity to go-api service
 
 ```bash
-kubectl run -it --rm debug --image=radial/busyboxplus:curl --restart=Never -- curl -w "\n" http://go-api-svc
+kubectl run -it --rm debug \
+        --image=radial/busyboxplus:curl \
+        --restart=Never \
+        -- curl -w "\n" http://go-api-svc
 ```
 
 Let's break down this command:
@@ -180,7 +185,7 @@ Let's break down this command:
 
 After running this command you should see `HOME Page` returned to the terminal.
 
-#### Apply Network Policy
+### #7 Apply Network Policy
 
 Let's apply policy that allows only traffic from pods with label app:version_ready to GET endpoint of the go-api pod.
 
@@ -212,7 +217,7 @@ spec:
 kubectl apply -f https://raw.githubusercontent.com/Piotr1215/go-sample-api/master/k8s/cilium-policy.yaml
 ```
 
-#### Check if the connectivity works
+### #8 Check if the connectivity works
 
 If our policy works correctly, we shouldn't be able to access the service any longer.
 
@@ -228,9 +233,10 @@ The above command will result in a timeout.
 
 > If you don't want to wait for a timeout, you can create a new terminal session with the `+` icon on the top.
 
-### Identity Aware Policy
+### #9 Identity Aware Policy
 
-In order to grant access to a pod to the `/version` endpoint, we have to label it appropriately with `app=version_reader`
+In order to grant access to a pod to the `/version` endpoint, we have to label it appropriately with `app=version_reader`. This will enable identity aware policy, where instead of targeting pods via their IP:PORT combo, we can use K8s labels to.
+Leveraging labels instead of IPs works well with the ephemeral nature of Kubernetes infrastructure.
 
 ```bash
 kubectl run -it --rm debug2 \
